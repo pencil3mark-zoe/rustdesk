@@ -6,6 +6,7 @@ on:
       - fix/sogou-9key-ime-1.4.9
     paths:
       - patches/sogou-9key-ime-15429.patch
+      - patches/sogou-9key-ime-v2-pacing.patch
       - .github/workflows/build-sogou-9key-apk.yml
   workflow_dispatch:
 
@@ -19,7 +20,7 @@ env:
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
   VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
   NDK_VERSION: "r28c"
-  VERSION: "1.4.9-sogou9key"
+  VERSION: "1.4.9-sogou9key-v2"
 
 jobs:
   generate-bridge:
@@ -27,7 +28,7 @@ jobs:
 
   build-android-arm64:
     needs: [generate-bridge]
-    name: build Android arm64 Sogou 9-key test APK
+    name: build Android arm64 Sogou 9-key V2 test APK
     runs-on: ubuntu-24.04
 
     steps:
@@ -89,10 +90,12 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Apply Sogou/CJK IME patch
+      - name: Apply Sogou/CJK IME patches
         run: |
           git apply --check patches/sogou-9key-ime-15429.patch
           git apply patches/sogou-9key-ime-15429.patch
+          git apply --check patches/sogou-9key-ime-v2-pacing.patch
+          git apply patches/sogou-9key-ime-v2-pacing.patch
           git diff --check
 
       - name: Install Flutter
@@ -157,7 +160,7 @@ jobs:
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
         with:
           prefix-key: rustdesk-lib-cache-android
-          key: aarch64-linux-android-sogou9key
+          key: aarch64-linux-android-sogou9key-v2
 
       - name: Build RustDesk Android library
         env:
@@ -173,8 +176,8 @@ jobs:
       - name: Configure standalone test package
         shell: bash
         run: |
-          sed -i 's/applicationId "com.carriez.flutter_hbb"/applicationId "com.carriez.flutter_hbb.sogou9key"/' ./flutter/android/app/build.gradle
-          sed -i 's/android:label="RustDesk"/android:label="RustDesk Sogou 9Key"/' ./flutter/android/app/src/main/AndroidManifest.xml
+          sed -i 's/applicationId "com.carriez.flutter_hbb"/applicationId "com.carriez.flutter_hbb.sogou9keyv2"/' ./flutter/android/app/build.gradle
+          sed -i 's/android:label="RustDesk"/android:label="RustDesk Sogou 9Key V2"/' ./flutter/android/app/src/main/AndroidManifest.xml
           sed -i 's/signingConfigs.release/signingConfigs.debug/g' ./flutter/android/app/build.gradle
           sed -i 's/org.gradle.jvmargs=-Xmx1024M/org.gradle.jvmargs=-Xmx2g/g' ./flutter/android/gradle.properties
 
