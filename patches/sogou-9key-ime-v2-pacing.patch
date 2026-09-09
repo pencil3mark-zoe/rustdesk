@@ -1,0 +1,53 @@
+diff --git a/flutter/lib/mobile/pages/remote_page.dart b/flutter/lib/mobile/pages/remote_page.dart
+--- a/flutter/lib/mobile/pages/remote_page.dart
++++ b/flutter/lib/mobile/pages/remote_page.dart
+@@ -84,4 +84,5 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
+   final TextEditingController _textController =
+       TextEditingController(text: initText);
++  Future<void> _androidSoftKeyboardSendQueue = Future<void>.value();
+ 
+   _RemotePageState(String id) {
+@@ -334,21 +335,32 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
+     final effectiveOld = clipboardAdjustedOldValue(_value, newValue);
+     _value = newValue;
+     final edit = computeSoftKeyboardEdit(effectiveOld, newValue);
+-    for (var k = 0; k < edit.backspaces; k++) {
+-      inputModel.inputKey('VK_BACK');
+-    }
+-    if (edit.insert.isEmpty) {
+-      return;
+-    }
+     if (isAutoInsertedBracketPair(effectiveOld, edit.backspaces, edit.insert)) {
+       // can not only input insert[0], because when input ], [ are also auto insert, which cause ] never be input
+       bind.sessionInputString(sessionId: sessionId, value: edit.insert);
+       _openKeyboardUnlocked();
+       return;
+     }
+-    if (edit.insert.length > 1) {
+-      bind.sessionInputString(sessionId: sessionId, value: edit.insert);
+-    } else {
+-      inputChar(edit.insert);
+-    }
++    _enqueueAndroidSoftKeyboardEdit(edit.backspaces, edit.insert);
+   }
++
++  void _enqueueAndroidSoftKeyboardEdit(int backspaces, String insert) {
++    _androidSoftKeyboardSendQueue =
++        _androidSoftKeyboardSendQueue.then((_) async {
++      const pace = Duration(milliseconds: 35);
++      for (var k = 0; k < backspaces; ++k) {
++        if (!mounted || !inputModel.keyboardInputAllowed) {
++          return;
++        }
++        inputModel.inputKey('VK_BACK');
++        await Future.delayed(pace);
++      }
++      for (final rune in insert.runes) {
++        if (!mounted || !inputModel.keyboardInputAllowed) {
++          return;
++        }
++        inputChar(String.fromCharCode(rune));
++        await Future.delayed(pace);
++      }
++    });
++  }
