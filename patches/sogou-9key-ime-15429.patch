@@ -14,8 +14,8 @@ index 8395f4540db..d066fab9861 100644
      var subNewValue = newValue.substring(j + 1);
      var subOldValue = oldValue.substring(j + 1);
  
-+    // Android factors this content diff out as computeSoftKeyboardEdit().
-+    // Keep iOS inline to avoid changing its already working input path.
++    // ponytail: the Android path factors this content-diff out as computeSoftKeyboardEdit() in
++    // models/soft_keyboard_input_utils.dart; kept inline here to avoid touching working iOS code.
      // get common prefix of subNewValue and subOldValue
      var common = 0;
      for (;
@@ -24,8 +24,10 @@ index 8395f4540db..d066fab9861 100644
  
    void _handleNonIOSSoftKeyboardInput(String newValue) {
 -    var oldValue = _value;
-+    // Diff by content, not length. CJK IMEs can replace composing text in place,
-+    // so equal String.length does not mean that no input change occurred.
++    // Diff by CONTENT, not length: Korean/CJK IMEs mutate the composing syllable in place
++    // (ㅁ→마→만), which keeps the text-field length unchanged. The old length-only diff no-op'd
++    // on equal length and silently dropped every medial/final jamo (issue #7727). The shared
++    // helper backspaces the changed tail then retypes it, which converges regardless.
 +    final effectiveOld = clipboardAdjustedOldValue(_value, newValue);
      _value = newValue;
 -    if (oldValue.isNotEmpty &&
@@ -47,6 +49,7 @@ index 8395f4540db..d066fab9861 100644
 +      return;
 +    }
 +    if (isAutoInsertedBracketPair(effectiveOld, edit.backspaces, edit.insert)) {
++      // can not only input insert[0], because when input ], [ are also auto insert, which cause ] never be input
 +      bind.sessionInputString(sessionId: sessionId, value: edit.insert);
 +      _openKeyboardUnlocked();
 +      return;
@@ -87,13 +90,19 @@ index 00000000000..61a913c6907
 +++ b/flutter/lib/models/soft_keyboard_input_utils.dart
 @@ -0,0 +1,70 @@
 +// Pure soft-keyboard text-diff helpers for the Android (non-iOS) controller input path.
++//
++// ponytail: the iOS handler (_handleIOSSoftKeyboardInput, remote_page.dart ~281-318) keeps its
++// own inline copy of this diff; it is intentionally not rewired through here. Touching the
++// already-correct iOS path purely to deduplicate would add regression risk for no behavioral
++// gain. If the diff ever has to change for both platforms, unify then.
 +
 +/// Computes the edit to push to the remote host given the previous (`oldValue`) and current
 +/// (`newValue`) soft-keyboard text-field contents, both seeded with the `'1' * N` sentinel.
 +///
 +/// Returns the number of `VK_BACK` presses to send (`backspaces`) followed by the literal text
-+/// to type (`insert`). Diffs on CONTENT, not length, so CJK in-place composing mutation is
-+/// handled instead of silently dropped.
++/// to type (`insert`). Mirrors the iOS algorithm at remote_page.dart ~281-318 (minus the
++/// iOS-only composing-hold). Diffs on CONTENT, not length, so Hangul/CJK in-place composing
++/// mutation (ㅁ→마→만 — same UTF-16 length) is handled instead of silently dropped.
 +({int backspaces, String insert}) computeSoftKeyboardEdit(
 +    String oldValue, String newValue) {
 +  // Align the diff window to the text after the last sentinel '1' in each string.
@@ -119,8 +128,13 @@ index 00000000000..61a913c6907
 +  return (backspaces: backspaces, insert: insert);
 +}
 +
-+/// Reproduces the Android clipboard guard: when the sentinel-prefixed buffer is replaced by
-+/// pasted text, treat the old value as empty so the whole new text is sent.
++/// Reproduces the Android clipboard guard (remote_page.dart ~331-337): when the sentinel-prefixed
++/// buffer is replaced by pasted text (old starts with '1', new does not), treat the old value as
++/// empty so the whole new text is sent.
++///
++/// Both `isNotEmpty` checks are required: `_value` starts empty and seeding the controller text
++/// does not fire `onChanged`, so the first keystroke can arrive with an empty `oldValue`; without
++/// the guards `oldValue[0]` would throw a RangeError.
 +String clipboardAdjustedOldValue(String oldValue, String newValue) {
 +  if (oldValue.isNotEmpty &&
 +      newValue.isNotEmpty &&
@@ -135,74 +149,95 @@ index 00000000000..61a913c6907
 +  '""', '()', '[]', '<>', '{}', '”“', '《》', '（）', '【】'
 +};
 +
++/// True when `insert` is a two-character bracket pair appended (no backspaces) onto a non-empty
++/// buffer — the case where a host editor auto-inserts the closing bracket, so the whole pair must
++/// be sent as a string (sending only the opener lets the host auto-close swallow later input).
++/// Mirrors remote_page.dart ~346-356.
 +bool isAutoInsertedBracketPair(
 +    String effectiveOldValue, int backspaces, String insert) {
 +  return effectiveOldValue != '' &&
 +      backspaces == 0 &&
 +      _autoInsertedBracketPairs.contains(insert);
 +}
-+
 diff --git a/flutter/test/soft_keyboard_input_utils_test.dart b/flutter/test/soft_keyboard_input_utils_test.dart
 new file mode 100644
 index 00000000000..7aad5b94468
 --- /dev/null
 +++ b/flutter/test/soft_keyboard_input_utils_test.dart
-@@ -0,0 +1,66 @@
+@@ -0,0 +1,77 @@
 +import 'package:flutter_test/flutter_test.dart';
 +import 'package:flutter_hbb/models/soft_keyboard_input_utils.dart';
 +
 +void main() {
 +  group('computeSoftKeyboardEdit', () {
-+    test('in-place CJK replacement with same length', () {
-+      expect(computeSoftKeyboardEdit('1你', '1好'),
-+          (backspaces: 1, insert: '好'));
-+    });
-+    test('pinyin composition commits to one Han character', () {
-+      expect(computeSoftKeyboardEdit('1ni', '1你'),
-+          (backspaces: 2, insert: '你'));
-+    });
-+    test('replace only changed tail of a Chinese phrase', () {
-+      expect(computeSoftKeyboardEdit('1你好', '1你们'),
-+          (backspaces: 1, insert: '们'));
-+    });
-+    test('Hangul in-place composition', () {
++    test('1 in-place jamo build ㅁ->마 sends backspace+replacement', () {
 +      expect(computeSoftKeyboardEdit('1ㅁ', '1마'),
 +          (backspaces: 1, insert: '마'));
 +    });
-+    test('append text', () {
-+      expect(computeSoftKeyboardEdit('1你', '1你好'),
-+          (backspaces: 0, insert: '好'));
++    test('2 in-place jamo build 마->만', () {
++      expect(computeSoftKeyboardEdit('1마', '1만'),
++          (backspaces: 1, insert: '만'));
 +    });
-+    test('multi-unit delete sends N backspaces', () {
-+      expect(computeSoftKeyboardEdit('1中文', '1'),
++    test('3 new syllable append ㄴ', () {
++      expect(computeSoftKeyboardEdit('1만', '1만ㄴ'),
++          (backspaces: 0, insert: 'ㄴ'));
++    });
++    test('4 syllable build 만ㄴ->만나', () {
++      expect(computeSoftKeyboardEdit('1만ㄴ', '1만나'),
++          (backspaces: 1, insert: '나'));
++    });
++    test('5 first jamo of buffer', () {
++      expect(computeSoftKeyboardEdit('1', '1ㅇ'),
++          (backspaces: 0, insert: 'ㅇ'));
++    });
++    test('6 batchim delete 만->마', () {
++      expect(computeSoftKeyboardEdit('1만', '1마'),
++          (backspaces: 1, insert: '마'));
++    });
++    test('7 multi-unit delete sends N backspaces', () {
++      expect(computeSoftKeyboardEdit('1가나', '1'),
 +          (backspaces: 2, insert: ''));
 +    });
-+    test('bracket pair append', () {
++    test('8 single delete', () {
++      expect(computeSoftKeyboardEdit('1가', '1'),
++          (backspaces: 1, insert: ''));
++    });
++    test('9 bracket pair append', () {
 +      expect(computeSoftKeyboardEdit('1', '1()'),
 +          (backspaces: 0, insert: '()'));
++    });
++    test('10 non-pair multi-char append', () {
++      expect(computeSoftKeyboardEdit('1', '1ab'),
++          (backspaces: 0, insert: 'ab'));
 +    });
 +  });
 +
 +  group('clipboardAdjustedOldValue', () {
-+    test('paste replaces sentinel -> empty old', () {
-+      expect(clipboardAdjustedOldValue('1111', '你好'), '');
++    test('11 paste replaces sentinel -> empty old', () {
++      expect(clipboardAdjustedOldValue('1111', 'hello'), '');
 +    });
-+    test('normal typing keeps old', () {
-+      expect(clipboardAdjustedOldValue('1你', '1好'), '1你');
++    test('12 normal typing keeps old', () {
++      expect(clipboardAdjustedOldValue('1만', '1마'), '1만');
 +    });
-+    test('empty old does not throw', () {
-+      expect(clipboardAdjustedOldValue('', '1你'), '');
++    test('13 empty old does not throw RangeError', () {
++      expect(clipboardAdjustedOldValue('', '1ㅁ'), '');
++    });
++    test('14 empty new does not throw RangeError', () {
++      expect(clipboardAdjustedOldValue('1111', ''), '1111');
 +    });
 +  });
 +
 +  group('isAutoInsertedBracketPair', () {
-+    test('pair appended onto non-empty buffer', () {
++    test('15 pair appended onto non-empty buffer', () {
 +      expect(isAutoInsertedBracketPair('1', 0, '()'), true);
 +    });
-+    test('not a known pair', () {
++    test('16 not a known pair', () {
 +      expect(isAutoInsertedBracketPair('1', 0, 'ab'), false);
 +    });
-+    test('backspaces present is not auto-pair', () {
++    test('17 empty old (post-clipboard) is not auto-pair', () {
++      expect(isAutoInsertedBracketPair('', 0, '()'), false);
++    });
++    test('18 backspaces present is not a host auto-pair', () {
 +      expect(isAutoInsertedBracketPair('1', 1, '()'), false);
 +    });
 +  });
