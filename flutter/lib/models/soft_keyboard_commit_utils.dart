@@ -2,6 +2,34 @@
 /// user commits a candidate. RustDesk must mirror only committed text to the
 /// remote host; intermediate Pinyin/Hangul composition belongs to the local IME.
 
+class CommittedTextMirror {
+  CommittedTextMirror(this.committedValue);
+
+  String committedValue;
+
+  void reset(String value) {
+    committedValue = value;
+  }
+
+  ({String oldValue, int backspaces, String insert})? update({
+    required String text,
+    required bool composing,
+  }) {
+    if (composing) {
+      return null;
+    }
+
+    final oldValue = committedDiffOldValue(committedValue, text);
+    final edit = computeCommittedTextEdit(oldValue, text);
+    committedValue = text;
+    return (
+      oldValue: oldValue,
+      backspaces: edit.backspaces,
+      insert: edit.insert,
+    );
+  }
+}
+
 ({int backspaces, String insert}) computeCommittedTextEdit(
     String oldValue, String newValue) {
   final oldRunes = oldValue.runes.toList(growable: false);
