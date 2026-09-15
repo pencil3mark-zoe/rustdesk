@@ -61,6 +61,20 @@ String committedDiffOldValue(String oldValue, String newValue) {
   return oldValue;
 }
 
+/// Android soft-keyboard text that contains non-ASCII Unicode should use
+/// RustDesk's text/sequence path even when it is only one code point long.
+///
+/// On Linux/X11, the legacy single-character path becomes KeyEvent.chr and is
+/// injected through Enigo key_down/key_up. Its libxdo fallback treats CJK text
+/// as a key name (for example `我`) and can silently ignore it. KeyEvent.seq
+/// instead uses xdo_enter_text_window, which is the correct text-input path.
+bool shouldSendAsTextSequence(String text) {
+  final runes = text.runes.toList(growable: false);
+  if (runes.isEmpty) return false;
+  if (runes.length > 1) return true;
+  return runes.first > 0x7f;
+}
+
 const _autoInsertedBracketPairs = <String>{
   '""',
   '()',
