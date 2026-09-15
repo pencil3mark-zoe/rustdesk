@@ -71,7 +71,11 @@ diff --git a/flutter/lib/mobile/pages/remote_page.dart b/flutter/lib/mobile/page
 +      return;
 +    }
 +
-+    if (edit.insert.runes.length > 1) {
++    // A single non-ASCII character must use the text/sequence path too.
++    // On Linux/X11, the legacy KeyEvent.chr path becomes Enigo
++    // key_down/key_up; its libxdo fallback treats CJK as a key name and can
++    // silently ignore it. KeyEvent.seq uses xdo_enter_text_window instead.
++    if (shouldSendAsTextSequence(edit.insert)) {
 +      bind.sessionInputString(sessionId: sessionId, value: edit.insert);
 +    } else {
 +      inputChar(edit.insert);
