@@ -1,0 +1,110 @@
+diff --git a/flutter/lib/mobile/pages/remote_page.dart b/flutter/lib/mobile/pages/remote_page.dart
+index 2224cbe..d33fb70 100644
+--- a/flutter/lib/mobile/pages/remote_page.dart
++++ b/flutter/lib/mobile/pages/remote_page.dart
+@@ -85,6 +85,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
+   final TextEditingController _textController =
+       TextEditingController(text: initText);
+   final CommittedTextMirror _androidCommittedText = CommittedTextMirror('');
++  int _s9DiagSeq = 0;
+ 
+   _RemotePageState(String id) {
+     initSharedStates(id);
+@@ -333,27 +334,44 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
+     }
+   }
+ 
++  String _s9DiagText(String text) {
++    final runes = text.runes.toList(growable: false);
++    final shown = runes.length <= 16
++        ? text
++        : '…${String.fromCharCodes(runes.sublist(runes.length - 16))}';
++    return shown.replaceAll('\n', r'\n').replaceAll('\r', r'\r');
++  }
++
+   void _handleAndroidTextEditingChange() {
+     if (!inputModel.keyboardInputAllowed) {
++      print('[S9DIAG][CTRL-DROP] keyboardInputAllowed=false');
+       return;
+     }
+ 
+     final value = _textController.value;
++    final diagSeq = ++_s9DiagSeq;
++    print('[S9DIAG][CTRL][$diagSeq] len=${value.text.runes.length} '         'text=[${_s9DiagText(value.text)}] '         'comp=${value.composing.start}..${value.composing.end} '         'valid=${value.isComposingRangeValid}');
+     final edit = _androidCommittedText.update(
+       text: value.text,
+       composing: value.isComposingRangeValid,
+     );
+     if (edit == null) {
++      print('[S9DIAG][EDIT][$diagSeq] deferred-composing');
+       return;
+     }
++    print('[S9DIAG][EDIT][$diagSeq] old=[${_s9DiagText(edit.oldValue)}] '         'back=${edit.backspaces} insert=[${_s9DiagText(edit.insert)}]');
+ 
+     if (isAutoInsertedBracketPair(
+         edit.oldValue, edit.backspaces, edit.insert)) {
++      print('[S9DIAG][SEND_STR][$diagSeq] bracket=[${_s9DiagText(edit.insert)}]');
+       bind.sessionInputString(sessionId: sessionId, value: edit.insert);
+       _openKeyboardUnlocked();
+       return;
+     }
+ 
++    if (edit.backspaces > 0) {
++      print('[S9DIAG][SEND_BACK][$diagSeq] count=${edit.backspaces}');
++    }
+     for (var i = 0; i < edit.backspaces; ++i) {
+       inputModel.inputKey('VK_BACK');
+     }
+@@ -363,8 +381,10 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
+     }
+ 
+     if (edit.insert.runes.length > 1) {
++      print('[S9DIAG][SEND_STR][$diagSeq] value=[${_s9DiagText(edit.insert)}]');
+       bind.sessionInputString(sessionId: sessionId, value: edit.insert);
+     } else {
++      print('[S9DIAG][SEND_KEY][$diagSeq] value=[${_s9DiagText(edit.insert)}]');
+       inputChar(edit.insert);
+     }
+   }
+diff --git a/flutter/lib/models/input_model.dart b/flutter/lib/models/input_model.dart
+index a701e6e..e863ab3 100644
+--- a/flutter/lib/models/input_model.dart
++++ b/flutter/lib/models/input_model.dart
+@@ -1027,8 +1027,15 @@ class InputModel {
+   /// [down] indicates the key's state(down or up).
+   /// [press] indicates a click event(down and up).
+   void inputKey(String name, {bool? down, bool? press}) {
+-    if (!keyboardPerm) return;
+-    if (isViewCamera) return;
++    if (!keyboardPerm) {
++      print('[S9DIAG][INPUTKEY-DROP] keyboardPerm=false name=[$name]');
++      return;
++    }
++    if (isViewCamera) {
++      print('[S9DIAG][INPUTKEY-DROP] isViewCamera=true name=[$name]');
++      return;
++    }
++    print('[S9DIAG][INPUTKEY] name=[$name] down=${down ?? false} press=${press ?? true}');
+     bind.sessionInputKey(
+         sessionId: sessionId,
+         name: name,
+diff --git a/src/flutter_ffi.rs b/src/flutter_ffi.rs
+index 0777443..a733301 100644
+--- a/src/flutter_ffi.rs
++++ b/src/flutter_ffi.rs
+@@ -647,6 +647,7 @@ pub fn session_input_key(
+     command: bool,
+ ) {
+     if let Some(session) = sessions::get_session_by_session_id(&session_id) {
++        log::warn!("[S9DIAG][RUST_KEY] name={:?} down={} press={} alt={} ctrl={} shift={} command={}", name, down, press, alt, ctrl, shift, command);
+         // #[cfg(any(target_os = "android", target_os = "ios"))]
+         session.input_key(&name, down, press, alt, ctrl, shift, command);
+     }
+@@ -654,6 +655,7 @@ pub fn session_input_key(
+ 
+ pub fn session_input_string(session_id: SessionID, value: String) {
+     if let Some(session) = sessions::get_session_by_session_id(&session_id) {
++        log::warn!("[S9DIAG][RUST_STR] value={:?}", value);
+         // #[cfg(any(target_os = "android", target_os = "ios"))]
+         session.input_string(&value);
+     }
