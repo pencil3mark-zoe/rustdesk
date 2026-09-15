@@ -1,0 +1,130 @@
+--- a/flutter/lib/mobile/pages/remote_page.dart
++++ b/flutter/lib/mobile/pages/remote_page.dart
+@@ -124,6 +124,9 @@
+           isKeyboardVisible: keyboardVisibilityController.isVisible);
+     });
+     WidgetsBinding.instance.addObserver(this);
++    if (isAndroid) {
++      _textController.addListener(_sogouDiagControllerListener);
++    }
+ 
+     inputModel.keyboardInputAllowed = true;
+ 
+@@ -142,6 +145,9 @@
+ 
+   @override
+   Future<void> dispose() async {
++    if (isAndroid) {
++      _textController.removeListener(_sogouDiagControllerListener);
++    }
+     WidgetsBinding.instance.removeObserver(this);
+     // Close the session up-front. `gFFI.close()` below only calls `sessionClose`
+     // after several awaits (canvas save, image update, the `enable_soft_keyboard`
+@@ -325,23 +331,50 @@
+     }
+   }
+ 
++  String _sogouDiagText(String value) {
++    final escaped = value.replaceAll('\n', r'\n').replaceAll('\r', r'\r');
++    if (escaped.length <= 96) {
++      return escaped;
++    }
++    return '${escaped.substring(0, 96)}...<len=${value.length}>';
++  }
++
++  void _sogouDiagControllerListener() {
++    final value = _textController.value;
++    print('[SOGOU_DIAG][controller] text="${_sogouDiagText(value.text)}" '
++        'selection=${value.selection.start}:${value.selection.end} '
++        'composing=${value.composing.start}:${value.composing.end} '
++        'valid=${value.isComposingRangeValid}');
++  }
++
+   void _handleNonIOSSoftKeyboardInput(String newValue) {
+     var oldValue = _value;
++    final editingValue = _textController.value;
++    print('[SOGOU_DIAG][diff-enter] old="${_sogouDiagText(oldValue)}" '
++        'new="${_sogouDiagText(newValue)}" '
++        'controller="${_sogouDiagText(editingValue.text)}" '
++        'composing=${editingValue.composing.start}:${editingValue.composing.end} '
++        'valid=${editingValue.isComposingRangeValid}');
+     _value = newValue;
+     if (oldValue.isNotEmpty &&
+         newValue.isNotEmpty &&
+         oldValue[0] == '1' &&
+         newValue[0] != '1') {
+       // clipboard
++      print('[SOGOU_DIAG][diff] clipboard sentinel replaced; old treated as empty');
+       oldValue = '';
+     }
+     if (newValue.length == oldValue.length) {
++      print('[SOGOU_DIAG][diff] equal-length no-op len=${newValue.length}');
+       // ?
+     } else if (newValue.length < oldValue.length) {
+       final char = 'VK_BACK';
++      print('[SOGOU_DIAG][send-key] $char oldLen=${oldValue.length} newLen=${newValue.length}');
+       inputModel.inputKey(char);
+     } else {
+       final content = newValue.substring(oldValue.length);
++      print('[SOGOU_DIAG][diff] append content="${_sogouDiagText(content)}" '
++          'oldLen=${oldValue.length} newLen=${newValue.length}');
+       if (content.length > 1) {
+         if (oldValue != '' &&
+             content.length == 2 &&
+@@ -355,10 +388,12 @@
+                 content == '（）' ||
+                 content == '【】')) {
+           // can not only input content[0], because when input ], [ are also auo insert, which cause ] never be input
++          print('[SOGOU_DIAG][send-string] auto-pair="${_sogouDiagText(content)}"');
+           bind.sessionInputString(sessionId: sessionId, value: content);
+           _openKeyboardUnlocked();
+           return;
+         }
++        print('[SOGOU_DIAG][send-string] value="${_sogouDiagText(content)}"');
+         bind.sessionInputString(sessionId: sessionId, value: content);
+       } else {
+         inputChar(content);
+@@ -368,6 +403,14 @@
+ 
+   // handle mobile virtual keyboard
+   void handleSoftKeyboardInput(String newValue) {
++    if (isAndroid) {
++      final value = _textController.value;
++      print('[SOGOU_DIAG][onChanged] new="${_sogouDiagText(newValue)}" '
++          'controller="${_sogouDiagText(value.text)}" '
++          'composing=${value.composing.start}:${value.composing.end} '
++          'valid=${value.isComposingRangeValid} '
++          'allowed=${inputModel.keyboardInputAllowed}');
++    }
+     if (!inputModel.keyboardInputAllowed) {
+       return;
+     }
+@@ -380,12 +423,18 @@
+ 
+   void inputChar(String char) {
+     if (!inputModel.keyboardInputAllowed) {
++      if (isAndroid) {
++        print('[SOGOU_DIAG][send-key-blocked] value="${_sogouDiagText(char)}"');
++      }
+       return;
+     }
+     if (char == '\n') {
+       char = 'VK_RETURN';
+     } else if (char == ' ') {
+       char = 'VK_SPACE';
++    }
++    if (isAndroid) {
++      print('[SOGOU_DIAG][send-key] value="${_sogouDiagText(char)}"');
+     }
+     inputModel.inputKey(char);
+   }
+@@ -417,6 +466,9 @@
+     gFFI.invokeMethod("enable_soft_keyboard", true);
+     // destroy first, so that our _value trick can work
+     _value = initText;
++    if (isAndroid) {
++      print('[SOGOU_DIAG][keyboard-open] reset hidden buffer len=${_value.length}');
++    }
+     _textController.text = _value;
+     setState(() => _showEdit = false);
+     _timer?.cancel();
