@@ -75,4 +75,26 @@ void main() {
       expect(isAutoInsertedBracketPair('1111', 1, '（）'), isFalse);
     });
   });
+
+  group('X11-safe text routing', () {
+    test('single ASCII stays on key-event path', () {
+      expect(shouldSendAsTextSequence('a'), isFalse);
+      expect(shouldSendAsTextSequence('1'), isFalse);
+    });
+
+    test('single CJK character uses text sequence path', () {
+      expect(shouldSendAsTextSequence('我'), isTrue);
+      expect(shouldSendAsTextSequence('你'), isTrue);
+    });
+
+    test('single non-ASCII Unicode uses text sequence path', () {
+      expect(shouldSendAsTextSequence('é'), isTrue);
+      expect(shouldSendAsTextSequence('😀'), isTrue);
+    });
+
+    test('multi-character text uses sequence path', () {
+      expect(shouldSendAsTextSequence('你好'), isTrue);
+      expect(shouldSendAsTextSequence('ab'), isTrue);
+    });
+  });
 }
