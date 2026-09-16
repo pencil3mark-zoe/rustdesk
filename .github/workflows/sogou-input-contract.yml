@@ -1,0 +1,66 @@
+name: Sogou input contract diagnostics
+
+on:
+  push:
+    branches: [debug/sogou-9key-trace-20260916]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  patch-preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - name: Strict patch application against checked-out source
+        run: |
+          git apply --check patches/sogou-9key-ime-final.patch
+          git apply patches/sogou-9key-ime-final.patch
+          git diff --check
+          test "$(grep -c 'void _handleAndroidTextEditingChange()' flutter/lib/mobile/pages/remote_page.dart)" -eq 1
+          git diff --stat
+
+  flutter-callback-contract:
+    needs: patch-preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          channel: stable
+          flutter-version: '3.24.5'
+          cache: true
+      - name: Test actual helper and Flutter callbacks in minimal harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          LAB="$RUNNER_TEMP/sogou-contract"
+          mkdir -p "$LAB/lib/models" "$LAB/test"
+          cp flutter/lib/models/soft_keyboard_commit_utils.dart "$LAB/lib/models/"
+          cp flutter/test/sogou_callback_contract_test.dart "$LAB/test/"
+          cat > "$LAB/pubspec.yaml" <<'EOF'
+          name: sogou_callback_contract
+          environment:
+            sdk: '>=3.5.0 <4.0.0'
+          dependencies:
+            flutter:
+              sdk: flutter
+          dev_dependencies:
+            flutter_test:
+              sdk: flutter
+          EOF
+          cd "$LAB"
+          flutter --version
+          flutter pub get
+          flutter test --reporter expanded 2>&1 | tee "$RUNNER_TEMP/sogou-contract.log"
+      - name: Preserve contract results, never device input logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: sogou-contract-results
+          path: ${{ runner.temp }}/sogou-contract.log
+          if-no-files-found: warn
+          retention-days: 14
