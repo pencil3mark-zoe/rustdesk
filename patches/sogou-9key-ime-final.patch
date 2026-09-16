@@ -1,7 +1,8 @@
 diff --git a/flutter/lib/mobile/pages/remote_page.dart b/flutter/lib/mobile/pages/remote_page.dart
+index 8395f45..dc0544b 100644
 --- a/flutter/lib/mobile/pages/remote_page.dart
 +++ b/flutter/lib/mobile/pages/remote_page.dart
-@@ -20,6 +20,7 @@ import '../../common/widgets/remote_input.dart';
+@@ -21,6 +21,7 @@ import '../../common/widgets/remote_input.dart';
  import '../../models/input_model.dart';
  import '../../models/model.dart';
  import '../../models/platform_model.dart';
@@ -17,7 +18,7 @@ diff --git a/flutter/lib/mobile/pages/remote_page.dart b/flutter/lib/mobile/page
  
    _RemotePageState(String id) {
      initSharedStates(id);
-@@ -122,6 +124,9 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
+@@ -124,6 +126,9 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
            isKeyboardVisible: keyboardVisibilityController.isVisible);
      });
      WidgetsBinding.instance.addObserver(this);
@@ -27,7 +28,7 @@ diff --git a/flutter/lib/mobile/pages/remote_page.dart b/flutter/lib/mobile/page
  
      inputModel.keyboardInputAllowed = true;
  
-@@ -143,6 +148,9 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
+@@ -142,6 +147,9 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
  
    @override
    Future<void> dispose() async {
@@ -37,11 +38,10 @@ diff --git a/flutter/lib/mobile/pages/remote_page.dart b/flutter/lib/mobile/page
      WidgetsBinding.instance.removeObserver(this);
      // Close the session up-front. `gFFI.close()` below only calls `sessionClose`
      // after several awaits (canvas save, image update, the `enable_soft_keyboard`
-@@ -324,6 +332,42 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
-       inputChar(newStr);
+@@ -325,6 +333,46 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
      }
    }
-+
+ 
 +  void _handleAndroidTextEditingChange() {
 +    if (!inputModel.keyboardInputAllowed) {
 +      return;
@@ -71,20 +71,21 @@ diff --git a/flutter/lib/mobile/pages/remote_page.dart b/flutter/lib/mobile/page
 +      return;
 +    }
 +
-+    // A single non-ASCII character must use the text/sequence path too.
-+    // On Linux/X11, the legacy KeyEvent.chr path becomes Enigo
-+    // key_down/key_up; its libxdo fallback treats CJK as a key name and can
-+    // silently ignore it. KeyEvent.seq uses xdo_enter_text_window instead.
++    // Diagnostic route comparison: send single non-ASCII commits via Seq.
++    // Compare against Chr under the same recorded input and focus state.
++    // This routing experiment does not establish a TFC/libxdo root cause;
++    // the existing xdo key path encodes Layout(c) as a Unicode U<hex> keysym.
 +    if (shouldSendAsTextSequence(edit.insert)) {
 +      bind.sessionInputString(sessionId: sessionId, value: edit.insert);
 +    } else {
 +      inputChar(edit.insert);
 +    }
 +  }
- 
++
    void _handleNonIOSSoftKeyboardInput(String newValue) {
      var oldValue = _value;
-@@ -370,6 +414,11 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
+     _value = newValue;
+@@ -371,6 +419,11 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
      if (!inputModel.keyboardInputAllowed) {
        return;
      }
@@ -96,7 +97,7 @@ diff --git a/flutter/lib/mobile/pages/remote_page.dart b/flutter/lib/mobile/page
      if (isIOS) {
        _handleIOSSoftKeyboardInput(newValue);
      } else {
-@@ -417,6 +466,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
+@@ -417,6 +470,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
      gFFI.invokeMethod("enable_soft_keyboard", true);
      // destroy first, so that our _value trick can work
      _value = initText;
