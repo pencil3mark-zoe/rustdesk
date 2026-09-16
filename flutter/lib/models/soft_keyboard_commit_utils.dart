@@ -61,13 +61,11 @@ String committedDiffOldValue(String oldValue, String newValue) {
   return oldValue;
 }
 
-/// Android soft-keyboard text that contains non-ASCII Unicode should use
-/// RustDesk's text/sequence path even when it is only one code point long.
-///
-/// On Linux/X11, the legacy single-character path becomes KeyEvent.chr and is
-/// injected through Enigo key_down/key_up. Its libxdo fallback treats CJK text
-/// as a key name (for example `我`) and can silently ignore it. KeyEvent.seq
-/// instead uses xdo_enter_text_window, which is the correct text-input path.
+/// Experimental choice for a controlled Chr-versus-Seq comparison.
+/// This is not a proven fix. The real xdo key path encodes Layout(c) as a
+/// Unicode U<hex> keysym, not a literal UTF-8 key name. A test passing literal
+/// CJK to a keysym API cannot establish failure of RustDesk's actual fallback.
+/// Both routes still require same-run observation at the receiving application.
 bool shouldSendAsTextSequence(String text) {
   final runes = text.runes.toList(growable: false);
   if (runes.isEmpty) return false;
