@@ -1,0 +1,92 @@
+diff --git a/flutter/lib/mobile/pages/remote_page.dart b/flutter/lib/mobile/pages/remote_page.dart
+index 8395f45..3265939 100644
+--- a/flutter/lib/mobile/pages/remote_page.dart
++++ b/flutter/lib/mobile/pages/remote_page.dart
+@@ -21,6 +21,7 @@ import '../../common/widgets/remote_input.dart';
+ import '../../models/input_model.dart';
+ import '../../models/model.dart';
+ import '../../models/platform_model.dart';
++import '../../models/soft_keyboard_commit_utils.dart';
+ import '../../utils/image.dart';
+ import '../widgets/dialog.dart';
+ import '../widgets/custom_scale_widget.dart';
+@@ -326,43 +327,44 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
+   }
+ 
+   void _handleNonIOSSoftKeyboardInput(String newValue) {
+-    var oldValue = _value;
++    // Keep the stock onChanged timing, but never mirror IME preedit/composition
++    // to the remote peer. The committed baseline is updated only after the IME
++    // exposes committed text.
++    final editingValue = _textController.value;
++    if (isAndroid &&
++        editingValue.isComposingRangeValid &&
++        !editingValue.composing.isCollapsed) {
++      return;
++    }
++
++    final oldValue = committedDiffOldValue(_value, newValue);
++    final edit = computeCommittedTextEdit(oldValue, newValue);
+     _value = newValue;
+-    if (oldValue.isNotEmpty &&
+-        newValue.isNotEmpty &&
+-        oldValue[0] == '1' &&
+-        newValue[0] != '1') {
+-      // clipboard
+-      oldValue = '';
++
++    for (var i = 0; i < edit.backspaces; ++i) {
++      inputModel.inputKey('VK_BACK');
+     }
+-    if (newValue.length == oldValue.length) {
+-      // ?
+-    } else if (newValue.length < oldValue.length) {
+-      final char = 'VK_BACK';
+-      inputModel.inputKey(char);
+-    } else {
+-      final content = newValue.substring(oldValue.length);
+-      if (content.length > 1) {
+-        if (oldValue != '' &&
+-            content.length == 2 &&
+-            (content == '""' ||
+-                content == '()' ||
+-                content == '[]' ||
+-                content == '<>' ||
+-                content == "{}" ||
+-                content == '”“' ||
+-                content == '《》' ||
+-                content == '（）' ||
+-                content == '【】')) {
+-          // can not only input content[0], because when input ], [ are also auo insert, which cause ] never be input
+-          bind.sessionInputString(sessionId: sessionId, value: content);
+-          _openKeyboardUnlocked();
+-          return;
+-        }
+-        bind.sessionInputString(sessionId: sessionId, value: content);
+-      } else {
+-        inputChar(content);
+-      }
++
++    final insert = edit.insert;
++    if (insert.isEmpty) {
++      return;
++    }
++
++    // Enter and Space are controls in many remote applications and retain the
++    // existing key-event semantics. All other soft-keyboard committed text,
++    // including a single CJK code point, is sent as a complete UTF-8 string.
++    if (insert == '\n' || insert == ' ') {
++      inputChar(insert);
++      return;
++    }
++
++    bind.sessionInputString(sessionId: sessionId, value: insert);
++
++    if (isAutoInsertedBracketPair(oldValue, edit.backspaces, insert)) {
++      // Preserve the existing bracket-pair workaround: reopening the hidden
++      // field avoids Flutter/IME auto-insertion from swallowing the closing
++      // bracket on the next edit.
++      _openKeyboardUnlocked();
+     }
+   }
+ 
