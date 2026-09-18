@@ -16,6 +16,22 @@ void main() {
       );
     });
 
+    test('single committed CJK scalar is preserved as one insert', () {
+      final mirror = CommittedTextMirror('1111');
+      expect(
+        mirror.update(text: '1111我', composing: false),
+        (oldValue: '1111', backspaces: 0, insert: '我'),
+      );
+    });
+
+    test('whole-sentence candidate stays one exact committed insert', () {
+      final mirror = CommittedTextMirror('1111');
+      expect(
+        mirror.update(text: '1111我今天吃饺子', composing: false),
+        (oldValue: '1111', backspaces: 0, insert: '我今天吃饺子'),
+      );
+    });
+
     test('supports consecutive committed Chinese phrases', () {
       final mirror = CommittedTextMirror('1111你好');
       expect(mirror.update(text: '1111你好shi', composing: true), isNull);
@@ -39,6 +55,14 @@ void main() {
       expect(
         mirror.update(text: '1111中华人民共和', composing: false),
         (oldValue: '1111中华人民共和国', backspaces: 1, insert: ''),
+      );
+    });
+
+    test('multi-character committed deletion emits every backspace', () {
+      final mirror = CommittedTextMirror('1111我今天吃饺子');
+      expect(
+        mirror.update(text: '1111我今天', composing: false),
+        (oldValue: '1111我今天吃饺子', backspaces: 3, insert: ''),
       );
     });
 
