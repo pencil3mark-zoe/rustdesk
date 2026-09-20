@@ -227,5 +227,3 @@ index 185705f..8d8d9d4 100644
      test('composition edits never change committed baseline', () {
        final mirror = CommittedTextMirror('1111今天');
        mirror.update(text: '1111今天wan', composing: true);
-
-[executed on device: uan (1aaa49ad-f7cf-4673-a7a6-9d4ab8a6dccc)]
