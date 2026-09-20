@@ -177,5 +177,3 @@ jobs:
             rustdesk-${{ env.VERSION }}-aarch64.apk
             rustdesk-${{ env.VERSION }}-aarch64.apk.sha256
           if-no-files-found: error
-
-[executed on device: uan (1aaa49ad-f7cf-4673-a7a6-9d4ab8a6dccc)]
