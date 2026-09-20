@@ -1,0 +1,1 @@
+Build AVNC 3.3.1 IME fixed APK from pinned commit f30406514ef8880097e960da7dc1d8dc4c713d7f.
