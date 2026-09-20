@@ -1,0 +1,77 @@
+diff --git a/app/src/main/java/com/gaurav/avnc/ui/vnc/input/InputView.kt b/app/src/main/java/com/gaurav/avnc/ui/vnc/input/InputView.kt
+index c77de28..05eee59 100644
+--- a/app/src/main/java/com/gaurav/avnc/ui/vnc/input/InputView.kt
++++ b/app/src/main/java/com/gaurav/avnc/ui/vnc/input/InputView.kt
+@@ -11,6 +11,7 @@ package com.gaurav.avnc.ui.vnc.input
+ import android.annotation.SuppressLint
+ import android.content.Context
+ import android.os.Build
++import android.os.SystemClock
+ import android.util.AttributeSet
+ import android.view.KeyEvent
+ import android.view.MotionEvent
+@@ -32,9 +33,64 @@ class InputView(context: Context?, attrs: AttributeSet? = null) : View(context,
+      * Input connection used for intercepting key events
+      */
+     inner class InputConnection : BaseInputConnection(this, false) {
++        private var composingText: String? = null
++
+         override fun sendKeyEvent(event: KeyEvent): Boolean {
+             return inputHandler?.onKeyEvent(event) == true || super.sendKeyEvent(event)
+         }
++
++        private fun sendCommittedText(text: CharSequence?): Boolean {
++            val value = text?.toString().orEmpty()
++            if (value.isEmpty())
++                return true
++
++            // Soft keyboards often deliver text through InputConnection.commitText()
++            // instead of generating KeyEvents. Feed one ACTION_MULTIPLE event into
++            // AVNC's existing KeyHandler so it becomes ordered Unicode KeySyms.
++            inputHandler?.onKeyEvent(
++                KeyEvent(SystemClock.uptimeMillis(), value, 0, 0)
++            )
++            return true
++        }
++
++        override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
++            // Keep IME preedit local. Pinyin/Hangul/English suggestions are not sent
++            // until the IME explicitly commits or finishes the composition.
++            composingText = text?.toString().orEmpty()
++            return true
++        }
++
++        override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
++            composingText = null
++            return sendCommittedText(text)
++        }
++
++        override fun finishComposingText(): Boolean {
++            val pending = composingText
++            composingText = null
++            return sendCommittedText(pending)
++        }
++
++        override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
++            // Deletions while composing belong to the local IME preedit, not to the
++            // remote application. Once composition is clear, mirror exact deletes.
++            if (composingText != null)
++                return true
++
++            repeat(beforeLength.coerceAtLeast(0)) {
++                inputHandler?.onKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL))
++                inputHandler?.onKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DEL))
++            }
++            repeat(afterLength.coerceAtLeast(0)) {
++                inputHandler?.onKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_FORWARD_DEL))
++                inputHandler?.onKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_FORWARD_DEL))
++            }
++            return true
++        }
++
++        override fun deleteSurroundingTextInCodePoints(beforeLength: Int, afterLength: Int): Boolean {
++            return deleteSurroundingText(beforeLength, afterLength)
++        }
+     }
+ 
+     init {
