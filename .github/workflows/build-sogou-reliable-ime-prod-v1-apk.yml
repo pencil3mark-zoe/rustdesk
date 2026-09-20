@@ -1,9 +1,9 @@
-name: Build RustDesk Sogou Reliable IME Prod V1 APK
+name: Build RustDesk Sogou Reliable IME Prod V2 APK
 
 on:
   push:
     branches:
-      - fix/sogou-9key-ime-prod-v1
+      - fix/sogou-9key-ime-prod-v2
   workflow_dispatch:
 
 permissions:
@@ -24,7 +24,7 @@ jobs:
 
   build-android-arm64:
     needs: [generate-bridge]
-    name: build Android arm64 reliable IME prod-v1 APK
+    name: build Android arm64 reliable IME prod-v2 APK
     runs-on: ubuntu-24.04
 
     steps:
