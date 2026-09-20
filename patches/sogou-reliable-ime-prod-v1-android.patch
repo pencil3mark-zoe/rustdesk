@@ -1,5 +1,7 @@
+[Reading 229 lines from start (total: 229 lines, 0 remaining)]
+
 diff --git a/flutter/lib/mobile/pages/remote_page.dart b/flutter/lib/mobile/pages/remote_page.dart
-index 8395f45..3265939 100644
+index 8395f45..95acb16 100644
 --- a/flutter/lib/mobile/pages/remote_page.dart
 +++ b/flutter/lib/mobile/pages/remote_page.dart
 @@ -21,6 +21,7 @@ import '../../common/widgets/remote_input.dart';
@@ -10,32 +12,54 @@ index 8395f45..3265939 100644
  import '../../utils/image.dart';
  import '../widgets/dialog.dart';
  import '../widgets/custom_scale_widget.dart';
-@@ -326,43 +327,44 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
-   }
- 
-   void _handleNonIOSSoftKeyboardInput(String newValue) {
--    var oldValue = _value;
-+    // Keep the stock onChanged timing, but never mirror IME preedit/composition
-+    // to the remote peer. The committed baseline is updated only after the IME
-+    // exposes committed text.
-+    final editingValue = _textController.value;
-+    if (isAndroid &&
-+        editingValue.isComposingRangeValid &&
-+        !editingValue.composing.isCollapsed) {
-+      return;
+@@ -83,6 +84,8 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
+
+   final TextEditingController _textController =
+       TextEditingController(text: initText);
++  final CommittedTextMirror _androidCommittedTextMirror =
++      CommittedTextMirror(initText);
+
+   _RemotePageState(String id) {
+     initSharedStates(id);
+@@ -93,6 +96,9 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
+   @override
+   void initState() {
+     super.initState();
++    if (isAndroid) {
++      _textController.addListener(_handleAndroidEditingValueChanged);
 +    }
-+
-+    final oldValue = committedDiffOldValue(_value, newValue);
-+    final edit = computeCommittedTextEdit(oldValue, newValue);
-     _value = newValue;
+     gFFI.ffiModel.updateEventListener(sessionId, widget.id);
+     gFFI.start(
+       widget.id,
+@@ -143,6 +149,9 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
+   @override
+   Future<void> dispose() async {
+     WidgetsBinding.instance.removeObserver(this);
++    if (isAndroid) {
++      _textController.removeListener(_handleAndroidEditingValueChanged);
++    }
+     // Close the session up-front. `gFFI.close()` below only calls `sessionClose`
+     // after several awaits (canvas save, image update, the `enable_soft_keyboard`
+     // platform call), so if the app is backgrounded while this page is disposing,
+@@ -325,47 +334,77 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
+     }
+   }
+
+-  void _handleNonIOSSoftKeyboardInput(String newValue) {
+-    var oldValue = _value;
+-    _value = newValue;
 -    if (oldValue.isNotEmpty &&
 -        newValue.isNotEmpty &&
 -        oldValue[0] == '1' &&
 -        newValue[0] != '1') {
 -      // clipboard
 -      oldValue = '';
-+
-+    for (var i = 0; i < edit.backspaces; ++i) {
++  void _dispatchCommittedSoftKeyboardEdit({
++    required String oldValue,
++    required int backspaces,
++    required String insert,
++  }) {
++    for (var i = 0; i < backspaces; ++i) {
 +      inputModel.inputKey('VK_BACK');
      }
 -    if (newValue.length == oldValue.length) {
@@ -67,7 +91,6 @@ index 8395f45..3265939 100644
 -        inputChar(content);
 -      }
 +
-+    final insert = edit.insert;
 +    if (insert.isEmpty) {
 +      return;
 +    }
@@ -82,11 +105,129 @@ index 8395f45..3265939 100644
 +
 +    bind.sessionInputString(sessionId: sessionId, value: insert);
 +
-+    if (isAutoInsertedBracketPair(oldValue, edit.backspaces, insert)) {
++    if (isAutoInsertedBracketPair(oldValue, backspaces, insert)) {
 +      // Preserve the existing bracket-pair workaround: reopening the hidden
 +      // field avoids Flutter/IME auto-insertion from swallowing the closing
 +      // bracket on the next edit.
 +      _openKeyboardUnlocked();
      }
    }
- 
+
++  // Android IMEs are allowed to change only the composing range without
++  // changing the text. TextField.onChanged does not report that transition,
++  // so a candidate can become committed without one final onChanged callback.
++  // Listening to the complete TextEditingValue lets Vivo/Sogou/Gboard-style
++  // IMEs commit the exact final text while still suppressing preedit Pinyin.
++  void _handleAndroidEditingValueChanged() {
++    if (!isAndroid || !inputModel.keyboardInputAllowed) {
++      return;
++    }
++
++    final editingValue = _textController.value;
++    final composing = editingValue.isComposingRangeValid &&
++        !editingValue.composing.isCollapsed;
++    final edit = _androidCommittedTextMirror.update(
++      text: editingValue.text,
++      composing: composing,
++    );
++    if (edit == null) {
++      return;
++    }
++
++    _value = _androidCommittedTextMirror.committedValue;
++    _dispatchCommittedSoftKeyboardEdit(
++      oldValue: edit.oldValue,
++      backspaces: edit.backspaces,
++      insert: edit.insert,
++    );
++  }
++
++  void _handleNonIOSSoftKeyboardInput(String newValue) {
++    final oldValue = committedDiffOldValue(_value, newValue);
++    final edit = computeCommittedTextEdit(oldValue, newValue);
++    _value = newValue;
++    _dispatchCommittedSoftKeyboardEdit(
++      oldValue: oldValue,
++      backspaces: edit.backspaces,
++      insert: edit.insert,
++    );
++  }
++
+   // handle mobile virtual keyboard
+   void handleSoftKeyboardInput(String newValue) {
+     if (!inputModel.keyboardInputAllowed) {
+@@ -417,6 +456,9 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
+     gFFI.invokeMethod("enable_soft_keyboard", true);
+     // destroy first, so that our _value trick can work
+     _value = initText;
++    if (isAndroid) {
++      _androidCommittedTextMirror.reset(_value);
++    }
+     _textController.text = _value;
+     setState(() => _showEdit = false);
+     _timer?.cancel();
+@@ -696,7 +738,9 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
+                       //      2. The button will trigger `onKeyEvent` if the text field is empty.
+                       // ko/zh/ja input method: the button will trigger `onKeyEvent`
+                       //                     and the event will not popup if `KeyEventResult.handled` is returned.
+-                      onChanged: handleSoftKeyboardInput,
++                      // Android is handled by the controller listener above so
++                      // composing-only state transitions are not lost.
++                      onChanged: isAndroid ? null : handleSoftKeyboardInput,
+                     ).workaroundFreezeLinuxMint(),
+             ),
+           ];
+diff --git a/flutter/test/soft_keyboard_commit_utils_test.dart b/flutter/test/soft_keyboard_commit_utils_test.dart
+index 185705f..8d8d9d4 100644
+--- a/flutter/test/soft_keyboard_commit_utils_test.dart
++++ b/flutter/test/soft_keyboard_commit_utils_test.dart
+@@ -16,6 +16,32 @@ void main() {
+       );
+     });
+
++    test('composition-only collapse commits the same visible text', () {
++      final mirror = CommittedTextMirror('1111');
++
++      expect(mirror.update(text: '1111hello', composing: true), isNull);
++      expect(
++        mirror.update(text: '1111hello', composing: false),
++        (oldValue: '1111', backspaces: 0, insert: 'hello'),
++      );
++    });
++
++    test('single committed CJK scalar is preserved as one insert', () {
++      final mirror = CommittedTextMirror('1111');
++      expect(
++        mirror.update(text: '1111我', composing: false),
++        (oldValue: '1111', backspaces: 0, insert: '我'),
++      );
++    });
++
++    test('whole-sentence candidate stays one exact committed insert', () {
++      final mirror = CommittedTextMirror('1111');
++      expect(
++        mirror.update(text: '1111我今天吃饺子', composing: false),
++        (oldValue: '1111', backspaces: 0, insert: '我今天吃饺子'),
++      );
++    });
++
+     test('supports consecutive committed Chinese phrases', () {
+       final mirror = CommittedTextMirror('1111你好');
+       expect(mirror.update(text: '1111你好shi', composing: true), isNull);
+@@ -42,6 +68,14 @@ void main() {
+       );
+     });
+
++    test('multi-character committed deletion emits every backspace', () {
++      final mirror = CommittedTextMirror('1111我今天吃饺子');
++      expect(
++        mirror.update(text: '1111我今天', composing: false),
++        (oldValue: '1111我今天吃饺子', backspaces: 3, insert: ''),
++      );
++    });
++
+     test('composition edits never change committed baseline', () {
+       final mirror = CommittedTextMirror('1111今天');
+       mirror.update(text: '1111今天wan', composing: true);
+
+[executed on device: uan (1aaa49ad-f7cf-4673-a7a6-9d4ab8a6dccc)]
