@@ -1,3 +1,5 @@
+[Reading 179 lines from start (total: 179 lines, 0 remaining)]
+
 name: Build RustDesk Sogou Reliable IME Prod V1 APK
 
 on:
@@ -16,7 +18,7 @@ env:
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
   VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
   NDK_VERSION: "r28c"
-  VERSION: "1.4.9-sogou-reliable-ime-prod-v1"
+  VERSION: "1.4.9-sogou-reliable-ime-prod-v2"
 
 jobs:
   generate-bridge:
@@ -147,8 +149,8 @@ jobs:
       - name: Configure standalone test package
         shell: bash
         run: |
-          sed -i 's/applicationId "com.carriez.flutter_hbb"/applicationId "com.carriez.flutter_hbb.sogou9keyprodv1"/' ./flutter/android/app/build.gradle
-          sed -i 's/android:label="RustDesk"/android:label="RustDesk Sogou Reliable IME"/' ./flutter/android/app/src/main/AndroidManifest.xml
+          sed -i 's/applicationId "com.carriez.flutter_hbb"/applicationId "com.carriez.flutter_hbb.sogou9keyprodv2"/' ./flutter/android/app/build.gradle
+          sed -i 's/android:label="RustDesk"/android:label="RustDesk Sogou IME V2"/' ./flutter/android/app/src/main/AndroidManifest.xml
           sed -i 's/signingConfigs.release/signingConfigs.debug/g' ./flutter/android/app/build.gradle
           sed -i 's/org.gradle.jvmargs=-Xmx1024M/org.gradle.jvmargs=-Xmx2g/g' ./flutter/android/gradle.properties
 
@@ -177,3 +179,5 @@ jobs:
             rustdesk-${{ env.VERSION }}-aarch64.apk
             rustdesk-${{ env.VERSION }}-aarch64.apk.sha256
           if-no-files-found: error
+
+[executed on device: uan (1aaa49ad-f7cf-4673-a7a6-9d4ab8a6dccc)]
