@@ -20,7 +20,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: gujjwal00/avnc
-          ref: f304065
+          ref: f30406514ef8880097e960da7dc1d8dc4c713d7f
           path: avnc-src
           submodules: recursive
 
