@@ -3723,7 +3723,8 @@ class FFI {
     recentPeersModel = Peers(
         name: PeersModelName.recent,
         loadEvent: LoadEvent.recent,
-        getInitPeers: null);
+        getInitPeers: null,
+        enableDirectReachability: isAndroid);
     favoritePeersModel = Peers(
         name: PeersModelName.favorite,
         loadEvent: LoadEvent.favorite,
