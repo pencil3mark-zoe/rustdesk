@@ -20,6 +20,8 @@ class Peer {
   String rdpPort;
   String rdpUsername;
   bool online = false;
+  bool? directReachable;
+  bool get onlineForDisplay => directReachable ?? online;
   String loginName; //login username
   String device_group_name;
   String note;
@@ -165,6 +167,7 @@ class Peer {
         note: other.note,
         sameServer: other.sameServer);
     peer.online = other.online;
+    peer.directReachable = other.directReachable;
     return peer;
   }
 }
@@ -233,10 +236,6 @@ class Peers extends ChangeNotifier {
     int changedCount = 0;
     evt['onlines'].split(',').forEach((online) {
       for (var i = 0; i < peers.length; i++) {
-        if (enableDirectReachability &&
-            isDirectPeerAddress(peers[i].id)) {
-          continue;
-        }
         if (peers[i].id == online) {
           if (!peers[i].online) {
             changedCount += 1;
@@ -248,10 +247,6 @@ class Peers extends ChangeNotifier {
 
     evt['offlines'].split(',').forEach((offline) {
       for (var i = 0; i < peers.length; i++) {
-        if (enableDirectReachability &&
-            isDirectPeerAddress(peers[i].id)) {
-          continue;
-        }
         if (peers[i].id == offline) {
           if (peers[i].online) {
             changedCount += 1;
@@ -269,6 +264,7 @@ class Peers extends ChangeNotifier {
 
   void _updatePeers(Map<String, dynamic> evt) {
     final onlineStates = _getOnlineStates();
+    final directReachabilityStates = _getDirectReachabilityStates();
     if (getInitPeers != null) {
       peers = getInitPeers?.call() ?? [];
     } else {
@@ -283,6 +279,7 @@ class Peers extends ChangeNotifier {
     for (var peer in peers) {
       final state = onlineStates[peer.id];
       peer.online = state != null && state != false;
+      peer.directReachable = directReachabilityStates[peer.id];
     }
     event = UpdateEvent.load;
     notifyListeners();
@@ -322,15 +319,15 @@ class Peers extends ChangeNotifier {
         final peer = peers[index];
         if (result.value) {
           _directProbeFailures.remove(result.key);
-          if (!peer.online) {
-            peer.online = true;
+          if (peer.directReachable != true) {
+            peer.directReachable = true;
             changed = true;
           }
         } else {
           final failures = (_directProbeFailures[result.key] ?? 0) + 1;
           _directProbeFailures[result.key] = failures;
-          if (failures >= 2 && peer.online) {
-            peer.online = false;
+          if (failures >= 2 && peer.directReachable != false) {
+            peer.directReachable = false;
             changed = true;
           }
         }
@@ -351,6 +348,17 @@ class Peers extends ChangeNotifier {
       onlineStates[peer.id] = peer.online;
     }
     return onlineStates;
+  }
+
+  Map<String, bool> _getDirectReachabilityStates() {
+    final states = <String, bool>{};
+    for (final peer in peers) {
+      final state = peer.directReachable;
+      if (state != null) {
+        states[peer.id] = state;
+      }
+    }
+    return states;
   }
 
   List<Peer> _decodePeers(String peersStr) {
