@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import 'platform_model.dart';
+import '../utils/direct_peer_reachability/direct_peer_reachability.dart';
 // ignore: depend_on_referenced_packages
 import 'package:collection/collection.dart';
 
@@ -181,13 +183,18 @@ class Peers extends ChangeNotifier {
   // And then load all peers later.
   List<String> restPeerIds = List.empty(growable: true);
   final GetInitPeers? getInitPeers;
+  final bool enableDirectReachability;
   UpdateEvent event = UpdateEvent.load;
   static const _cbQueryOnlines = 'callback_query_onlines';
+  Timer? _directProbeTimer;
+  bool _directProbeInFlight = false;
+  final Map<String, int> _directProbeFailures = {};
 
   Peers(
       {required this.name,
       required this.getInitPeers,
-      required this.loadEvent}) {
+      required this.loadEvent,
+      this.enableDirectReachability = false}) {
     peers = getInitPeers?.call() ?? [];
     platformFFI.registerEventHandler(_cbQueryOnlines, name, (evt) async {
       _updateOnlineState(evt);
@@ -195,10 +202,16 @@ class Peers extends ChangeNotifier {
     platformFFI.registerEventHandler(loadEvent, name, (evt) async {
       _updatePeers(evt);
     });
+    if (enableDirectReachability) {
+      _directProbeTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+        unawaited(_refreshDirectReachability());
+      });
+    }
   }
 
   @override
   void dispose() {
+    _directProbeTimer?.cancel();
     platformFFI.unregisterEventHandler(_cbQueryOnlines, name);
     platformFFI.unregisterEventHandler(loadEvent, name);
     super.dispose();
@@ -220,6 +233,10 @@ class Peers extends ChangeNotifier {
     int changedCount = 0;
     evt['onlines'].split(',').forEach((online) {
       for (var i = 0; i < peers.length; i++) {
+        if (enableDirectReachability &&
+            isDirectPeerAddress(peers[i].id)) {
+          continue;
+        }
         if (peers[i].id == online) {
           if (!peers[i].online) {
             changedCount += 1;
@@ -231,6 +248,10 @@ class Peers extends ChangeNotifier {
 
     evt['offlines'].split(',').forEach((offline) {
       for (var i = 0; i < peers.length; i++) {
+        if (enableDirectReachability &&
+            isDirectPeerAddress(peers[i].id)) {
+          continue;
+        }
         if (peers[i].id == offline) {
           if (peers[i].online) {
             changedCount += 1;
@@ -265,6 +286,63 @@ class Peers extends ChangeNotifier {
     }
     event = UpdateEvent.load;
     notifyListeners();
+
+    if (enableDirectReachability) {
+      final currentIds = peers.map((peer) => peer.id).toSet();
+      _directProbeFailures.removeWhere((id, _) => !currentIds.contains(id));
+      unawaited(_refreshDirectReachability());
+    }
+  }
+
+  Future<void> _refreshDirectReachability() async {
+    if (!enableDirectReachability || _directProbeInFlight) {
+      return;
+    }
+
+    final directIds = peers
+        .where((peer) => isDirectPeerAddress(peer.id))
+        .map((peer) => peer.id)
+        .toList(growable: false);
+    if (directIds.isEmpty) {
+      return;
+    }
+
+    _directProbeInFlight = true;
+    try {
+      final results = await Future.wait(directIds.map((id) async =>
+          MapEntry(id, await probeDirectPeerReachability(id))));
+
+      var changed = false;
+      for (final result in results) {
+        final index = peers.indexWhere((peer) => peer.id == result.key);
+        if (index < 0) {
+          continue;
+        }
+
+        final peer = peers[index];
+        if (result.value) {
+          _directProbeFailures.remove(result.key);
+          if (!peer.online) {
+            peer.online = true;
+            changed = true;
+          }
+        } else {
+          final failures = (_directProbeFailures[result.key] ?? 0) + 1;
+          _directProbeFailures[result.key] = failures;
+          if (failures >= 2 && peer.online) {
+            peer.online = false;
+            changed = true;
+          }
+        }
+      }
+
+      if (changed) {
+        event = UpdateEvent.online;
+        notifyListeners();
+      }
+    } finally {
+      _directProbeInFlight = false;
+    }
   }
 
   Map<String, bool> _getOnlineStates() {
