@@ -1,9 +1,9 @@
-name: Build RustDesk Sogou Reliable IME Prod V2 APK
+name: Build RustDesk Sogou IME Prod V3 Direct Status Candidate APK
 
 on:
   push:
     branches:
-      - fix/sogou-9key-ime-prod-v2
+      - feature/android-direct-status-prod-v3
   workflow_dispatch:
 
 permissions:
@@ -16,7 +16,7 @@ env:
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
   VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
   NDK_VERSION: "r28c"
-  VERSION: "1.4.9-sogou-reliable-ime-prod-v2"
+  VERSION: "1.4.9-sogou-reliable-ime-prod-v3-direct-status"
 
 jobs:
   generate-bridge:
@@ -24,7 +24,7 @@ jobs:
 
   build-android-arm64:
     needs: [generate-bridge]
-    name: build Android arm64 reliable IME prod-v2 APK
+    name: build Android arm64 IME prod-v3 direct-status candidate APK
     runs-on: ubuntu-24.04
 
     steps:
@@ -85,7 +85,7 @@ jobs:
         run: |
           pushd flutter
           flutter pub get
-          flutter test test/soft_keyboard_commit_utils_test.dart
+          flutter test test/soft_keyboard_commit_utils_test.dart test/utils/direct_peer_reachability_test.dart
           popd
 
       - name: Set up Android NDK
@@ -147,8 +147,8 @@ jobs:
       - name: Configure standalone test package
         shell: bash
         run: |
-          sed -i 's/applicationId "com.carriez.flutter_hbb"/applicationId "com.carriez.flutter_hbb.sogou9keyprodv2"/' ./flutter/android/app/build.gradle
-          sed -i 's/android:label="RustDesk"/android:label="RustDesk Sogou IME V2"/' ./flutter/android/app/src/main/AndroidManifest.xml
+          sed -i 's/applicationId "com.carriez.flutter_hbb"/applicationId "com.carriez.flutter_hbb.sogou9keyprodv3directstatus"/' ./flutter/android/app/build.gradle
+          sed -i 's/android:label="RustDesk"/android:label="RustDesk Sogou IME V3"/' ./flutter/android/app/src/main/AndroidManifest.xml
           sed -i 's/signingConfigs.release/signingConfigs.debug/g' ./flutter/android/app/build.gradle
           sed -i 's/org.gradle.jvmargs=-Xmx1024M/org.gradle.jvmargs=-Xmx2g/g' ./flutter/android/gradle.properties
 
